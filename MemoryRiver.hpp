@@ -16,10 +16,29 @@ private:
     string file_name;
     int sizeofT = sizeof(T);
 
-    // Additional space for managing free space
-    // We'll use info_len positions as specified by user
-    // And internally manage a free list using the first deleted block
-    static const int HEADER_SIZE = info_len * sizeof(int);
+    // We use one extra int at position 0 to store the free list head
+    // User's info positions 1 to info_len are mapped to actual file positions 1 to info_len
+    // Our internal free list head is at actual position 0
+    static const int ACTUAL_INFO_LEN = info_len + 1;
+    static const int HEADER_SIZE = ACTUAL_INFO_LEN * sizeof(int);
+
+    // Internal function to get free list head (at position 0)
+    int get_free_head() {
+        file.open(file_name, std::ios::in);
+        int head;
+        file.seekg(0);
+        file.read(reinterpret_cast<char *>(&head), sizeof(int));
+        file.close();
+        return head;
+    }
+
+    // Internal function to set free list head (at position 0)
+    void set_free_head(int head) {
+        file.open(file_name, std::ios::in | std::ios::out);
+        file.seekp(0);
+        file.write(reinterpret_cast<char *>(&head), sizeof(int));
+        file.close();
+    }
 
 public:
     MemoryRiver() = default;
@@ -30,7 +49,8 @@ public:
         if (FN != "") file_name = FN;
         file.open(file_name, std::ios::out);
         int tmp = 0;
-        for (int i = 0; i < info_len; ++i)
+        // Write ACTUAL_INFO_LEN integers (including our internal free list head)
+        for (int i = 0; i < ACTUAL_INFO_LEN; ++i)
             file.write(reinterpret_cast<char *>(&tmp), sizeof(int));
         file.close();
     }
@@ -39,8 +59,10 @@ public:
     void get_info(int &tmp, int n) {
         if (n > info_len) return;
         /* your code here */
+        // Map user's position n to actual position n (1-based to 1-based)
+        // Position 0 is reserved for our free list head
         file.open(file_name, std::ios::in);
-        file.seekg((n - 1) * sizeof(int));
+        file.seekg(n * sizeof(int));
         file.read(reinterpret_cast<char *>(&tmp), sizeof(int));
         file.close();
     }
@@ -49,8 +71,10 @@ public:
     void write_info(int tmp, int n) {
         if (n > info_len) return;
         /* your code here */
+        // Map user's position n to actual position n (1-based to 1-based)
+        // Position 0 is reserved for our free list head
         file.open(file_name, std::ios::in | std::ios::out);
-        file.seekp((n - 1) * sizeof(int));
+        file.seekp(n * sizeof(int));
         file.write(reinterpret_cast<char *>(&tmp), sizeof(int));
         file.close();
     }
@@ -61,11 +85,7 @@ public:
     int write(T &t) {
         /* your code here */
         // Check if there's a free space in the reclaimed list
-        // We'll use the first int in header to store the head of free list
-        int free_head = 0;
-        if (info_len >= 1) {
-            get_info(free_head, 1);
-        }
+        int free_head = get_free_head();
 
         int index;
         if (free_head == 0) {
@@ -91,7 +111,7 @@ public:
             file.close();
 
             // Update the free list head
-            write_info(next_free, 1);
+            set_free_head(next_free);
         }
 
         return index;
@@ -121,10 +141,7 @@ public:
         // Add this block to the free list
         // The free list is a linked list where each free block stores the address of the next free block
 
-        int old_head = 0;
-        if (info_len >= 1) {
-            get_info(old_head, 1);
-        }
+        int old_head = get_free_head();
 
         // Write the old head pointer to the deleted block
         file.open(file_name, std::ios::in | std::ios::out);
@@ -133,7 +150,7 @@ public:
         file.close();
 
         // Update the free list head to point to this newly deleted block
-        write_info(index, 1);
+        set_free_head(index);
     }
 };
 
